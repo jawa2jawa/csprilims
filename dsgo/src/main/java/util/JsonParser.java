@@ -8,20 +8,22 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.Set;
 import java.util.Stack;
 
-public class JsonParser {
+public class AcaciaArkJSONParser {
 	File jsonFile = null;
 	Stack<String> keyStack = new Stack<String>();
-	Stack<Character> typeStack = new Stack<Character>();
+	Stack<Integer> indexStack = new Stack<Integer>();
+	Stack<Character> operatorStack = new Stack<Character>();
 	LinkedHashMap<String, String> dataBase = new LinkedHashMap<String, String>();
-	char startChars[] = { '[', '{' };
+	ArrayList<String> elements = new ArrayList<String>();
+	char startChars[] = { '[', '{' }, previousClosed = ' ';
 	HashMap<Character, Character> endChMap = new HashMap<Character, Character>();
-	String previousData = "{";
+	String previousData = "", nextKey = "";
+	Integer nextIndex = 0;
 
-	public JsonParser(String fileNmae) {
+	public AcaciaArkJSONParser(String fileNmae) {
 		jsonFile = new File(fileNmae);
 		endChMap.put('{', '}');
 		endChMap.put('[', ']');
@@ -52,17 +54,15 @@ public class JsonParser {
 				while ((line = br.readLine()) != null) {
 					System.out.println(line);
 					sb.append(line);
-					if (sb.length() >= 1000) {
-
-					}
 				}
+				processData(sb.toString());
 			} catch (IOException e) {
-				// TODO Auto-generated catch block
+// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
 
 		} catch (FileNotFoundException e) {
-			// TODO Auto-generated catch block
+// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 	}
@@ -70,9 +70,10 @@ public class JsonParser {
 	private void processData(String jsonData) {
 		String jsonFragment = previousData + jsonData;
 		jsonFragment = jsonFragment.trim();
-		int len = jsonFragment.length();
+		int len = jsonFragment.length(), previousIndex = 0;
 		StringBuilder sb = new StringBuilder();
-		String aux = "", data[] = null, tos = "", key = "";
+
+		String jsonText = "", data[] = null, tos = "", key = "";
 		int min = Integer.MAX_VALUE, i = 0;
 		int openedCurlybracesIndex = 0, closedCurlybracesIndex = 0, openedBracketsIndex = 0, closedBracketIndex = 0;
 		for (; i < len; i++) {
@@ -80,230 +81,117 @@ public class JsonParser {
 			 * jsonFragment starts with { or [
 			 */
 			if (startChars[0] == jsonFragment.charAt(i) || startChars[1] == jsonFragment.charAt(i)) {
-				typeStack.push(jsonFragment.charAt(i));
-				aux = jsonFragment.substring(1 + i);
-				if (aux.trim().length() == 0) {
-					break;
+				jsonText = jsonFragment.substring(previousIndex, i);
+				jsonText = jsonText.trim();
+				if (jsonText.length() == 0) {
+					jsonText = "$";
 				}
-				closedCurlybracesIndex = aux.indexOf(endChMap.get(startChars[1]));
-				closedBracketIndex = aux.indexOf(endChMap.get(startChars[0]));
-				openedCurlybracesIndex = aux.indexOf(startChars[1]);
-				openedBracketsIndex = aux.indexOf(startChars[0]);
-				min = getMinof(openedCurlybracesIndex, closedCurlybracesIndex, openedBracketsIndex, closedBracketIndex);
-				/*
-				 * OPEN OPEN
-				 */
-				if (openedCurlybracesIndex == min || openedBracketsIndex == min) {
-					aux = aux.substring(1, min);
-					if (keyStack.isEmpty()) {
-						continue;
+				elements = getStringAsTokens(jsonText);
+				if (jsonText.endsWith(":")) {
+					nextKey = elements.remove(elements.size() - 1);
+				}
+				if (!indexStack.isEmpty()) {
+					nextIndex = indexStack.peek();
+				}
+				if (elements.size() == 0) {
+					elements.add("$");
+				}
+				if (!operatorStack.isEmpty() && operatorStack.peek() == '[') {
+					updateDBwithArray(elements, keyStack.peek(), nextIndex);
+				}
+				if (!operatorStack.isEmpty() && operatorStack.peek() == '{') {
+					updateDBwithMap(elements, keyStack.peek());
+				}
+				previousIndex = i + 1;
+				jsonText = jsonFragment.substring(previousIndex);
+				closedCurlybracesIndex = jsonText.indexOf(endChMap.get(startChars[1]));
+				closedBracketIndex = jsonText.indexOf(endChMap.get(startChars[0]));
+				openedCurlybracesIndex = jsonText.indexOf(startChars[1]);
+				openedBracketsIndex = jsonText.indexOf(startChars[0]);
+				if (!indexStack.isEmpty() && !keyStack.isEmpty() && keyStack.peek().trim().length() > 0
+						&& !operatorStack.isEmpty() && (operatorStack.peek() == '[')) {
+					if (keyStack.peek().trim().endsWith(".")) {
+						if (nextKey.trim().startsWith(".")) {
+							keyStack.push(keyStack.peek() + "[" + indexStack.peek() + "]" + nextKey);
+						} else {
+							keyStack.push(keyStack.peek() + "[" + indexStack.peek() + "]." + nextKey);
+						}
+					} else {
+						if (nextKey.trim().startsWith(".")) {
+							keyStack.push(keyStack.peek() + ".[" + indexStack.peek() + "]" + nextKey);
+						} else {
+							keyStack.push(keyStack.peek() + ".[" + indexStack.peek() + "]." + nextKey);
+						}
 					}
-					tos = keyStack.peek();
-					/*
-					 * JSON Object
-					 */
-					if (typeStack.peek() == '{') {
-						Map<String, String> cfgMap = new LinkedHashMap<String, String>();
-						key = getKeyandMap(aux, cfgMap);
-						updateAndContinue(cfgMap);
+				} else {
+					if (keyStack.peek().trim().endsWith(".") || nextKey.trim().startsWith(".")) {
+						keyStack.push(keyStack.peek() + nextKey);
+					} else {
+						keyStack.push(keyStack.peek() + "." + nextKey);
 					}
-					/*
-					 * JSON Array
-					 */
-					if (typeStack.peek() == '[') {
-						ArrayList<String> cfg = new ArrayList<String>();
-						key = getKeyandMap(aux, cfg);
-						updateAndContinue(cfg);
-					}
-					if (key.trim().length() != 0) {
-						keyStack.push(tos + "." + key);
-					}
+				}
+				operatorStack.push(jsonFragment.charAt(i));
+				nextKey = "";
+				if (jsonFragment.charAt(i) == '[') {
+					indexStack.push(0);
+				}
+				if (closedCurlybracesIndex != -1 || closedBracketIndex != -1 || openedCurlybracesIndex != -1
+						|| openedBracketsIndex != -1) {
+					min = getMinof(openedCurlybracesIndex, closedCurlybracesIndex, openedBracketsIndex,
+							closedBracketIndex);
 					i += min;
 				}
-				/*
-				 * OPEN CLOSE
-				 */
-				if (closedBracketIndex == min || closedCurlybracesIndex == min) {
-					aux = aux.substring(0, min);
-					if (keyStack.isEmpty()) {
-						continue;
-					}
-					tos = keyStack.peek();
-					if (typeStack.peek() == '{') {
-						Map<String, String> cfgMap = new LinkedHashMap<String, String>();
-						key = getKeyandMap(aux, cfgMap);
-						updateAndComplete(cfgMap);
-					}
-					/*
-					 * JSON Array
-					 */
-					if (typeStack.peek() == '[') {
-						ArrayList<String> cfg = new ArrayList<String>();
-						key = getKeyandMap(aux, cfg);
-						updateAndComplete(cfg);
-					}
-
-					i += min;
-				}
-
+				continue;
 			}
 
 			/*
 			 * jsonFragment starts with } or ]
 			 */
 			if ('}' == jsonFragment.charAt(i) || ']' == jsonFragment.charAt(i)) {
-				aux = aux.substring(1);
-				if (aux.trim().length() == 0) {
-					break;
+				jsonText = jsonFragment.substring(previousIndex, i);
+				jsonText = jsonText.trim();
+				if (jsonText.length() == 0) {
+					jsonText = "$";
 				}
-				closedCurlybracesIndex = aux.indexOf(endChMap.get(startChars[1]));
-				closedBracketIndex = aux.indexOf(endChMap.get(startChars[0]));
-				openedCurlybracesIndex = aux.indexOf(startChars[1]);
-				openedBracketsIndex = aux.indexOf(startChars[0]);
-				min = getMinof(openedCurlybracesIndex, closedCurlybracesIndex, openedBracketsIndex, closedBracketIndex);
-				/*
-				 * CLOSE OPEN
-				 */
-				if (openedCurlybracesIndex == min || openedBracketsIndex == min) {
-					aux = aux.substring(1, min);
-					if (keyStack.isEmpty()) {
-						continue;
+				elements = getStringAsTokens(jsonText);
+				if (!operatorStack.isEmpty() && operatorStack.peek() == '[' && !keyStack.isEmpty()
+						&& !indexStack.isEmpty()) {
+					updateDBwithArray(elements, keyStack.peek(), indexStack.peek());
+					if (elements.size() == 1 && elements.get(0) == "$" && indexStack.peek() == 0) {
+						updateDataBase(keyStack.peek(), "Undefined");
 					}
-					tos = keyStack.peek();
-					/*
-					 * JSON Object
-					 */
-					if (typeStack.peek() == '{') {
-						typeStack.pop();
-						Map<String, String> cfgMap = new LinkedHashMap<String, String>();
-						key = getKeyandMap(aux, cfgMap);
-						updateAndContinue(cfgMap);
-					}
-					/*
-					 * JSON Array
-					 */
-					if (typeStack.peek() == '[') {
-						typeStack.pop();
-						ArrayList<String> cfg = new ArrayList<String>();
-						key = getKeyandMap(aux, cfg);
-						updateAndContinue(cfg);
-					}
-					if (key.trim().length() != 0) {
-						keyStack.push(tos + "." + key);
-					}
+					keyStack.pop();
+					indexStack.pop();
+				}
+				if (!operatorStack.isEmpty() && operatorStack.peek() == '{' && !keyStack.isEmpty()) {
+					updateDBwithMap(elements, keyStack.peek());
+					keyStack.pop();
+				}
+				operatorStack.pop();
+				if (!operatorStack.isEmpty() && operatorStack.peek() == '[' && !indexStack.isEmpty()) {
+					nextIndex = indexStack.pop();
+					nextIndex++;
+					indexStack.push(nextIndex);
+				}
+				previousIndex = i + 1;
+				jsonText = jsonFragment.substring(previousIndex);
+				closedCurlybracesIndex = jsonText.indexOf(endChMap.get(startChars[1]));
+				closedBracketIndex = jsonText.indexOf(endChMap.get(startChars[0]));
+				openedCurlybracesIndex = jsonText.indexOf(startChars[1]);
+				openedBracketsIndex = jsonText.indexOf(startChars[0]);
+				if (closedCurlybracesIndex != -1 || closedBracketIndex != -1 || openedCurlybracesIndex != -1
+						|| openedBracketsIndex != -1) {
+					min = getMinof(openedCurlybracesIndex, closedCurlybracesIndex, openedBracketsIndex,
+							closedBracketIndex);
 					i += min;
 				}
-				/*
-				 * CLOSE CLOSE
-				 */
-				if (closedBracketIndex == min || closedCurlybracesIndex == min) {
-					aux = aux.substring(0, min);
-					if (keyStack.isEmpty()) {
-						continue;
-					}
-					tos = keyStack.peek();
-					if (typeStack.peek() == '{') {
-						Map<String, String> cfgMap = new LinkedHashMap<String, String>();
-						key = getKeyandMap(aux, cfgMap);
-						updateAndComplete(cfgMap);
-					}
-					/*
-					 * JSON Array
-					 */
-					if (typeStack.peek() == '[') {
-						ArrayList<String> cfg = new ArrayList<String>();
-						key = getKeyandMap(aux, cfg);
-						updateAndComplete(cfg);
-					}
-					if (key.trim().length() != 0) {
-						keyStack.push(tos + "." + key);
-					}
-					i += min;
-				}
-
 			}
 		}
-		previousData = jsonFragment.substring(i);
 	}
 
-	private void updateAndComplete(ArrayList<String> cfg) {
-		if (cfg.size() == 0) {
-			return;
-		}
-		String tos = keyStack.peek(), nextKey = "", aux = "";
-		int len = cfg.size();
-		for (int i = 0; i < len; i++) {
-			dataBase.put(tos + "[" + i + "]", cfg.get(i));
-		}
+	private ArrayList<String> getStringAsTokens(String jsonFragment) {
+		ArrayList<String> result = new ArrayList<String>();
 
-	}
-
-	private void updateAndContinue(ArrayList<String> cfg) {
-		if (cfg.size() == 0) {
-			return;
-		}
-		String tos = keyStack.peek(), nextKey = "", aux = "";
-		int len = cfg.size();
-		for (int i = 0; i < len; i++) {
-			dataBase.put(tos, cfg.get(i));
-		}
-
-	}
-
-	private void updateAndContinue(Map<String, String> cfg) {
-		if (cfg.size() == 0) {
-			return;
-		}
-		String tos = keyStack.peek(), nextKey = "", aux = "";
-		Iterator iterator = cfg.keySet().iterator();
-		while (iterator.hasNext()) {
-			aux = (String) iterator.next();
-			nextKey = tos + "." + aux;
-			dataBase.put(nextKey, cfg.get(aux));
-		}
-	}
-
-	private void updateAndComplete(Map<String, String> cfg) {
-		if (cfg.size() == 0) {
-			return;
-		}
-		String tos = keyStack.pop(), nextKey = "", aux = "";
-		Iterator iterator = cfg.keySet().iterator();
-		while (iterator.hasNext()) {
-			aux = (String) iterator.next();
-			nextKey = tos + "." + aux;
-			dataBase.put(nextKey, cfg.get(aux));
-		}
-	}
-
-	private String getKeyandMap(String jsonFragment, ArrayList<String> cfg) {
-		int colenIndex = jsonFragment.indexOf(':');
-		String key = "";
-		if (colenIndex != -1) {
-			String arrayData = jsonFragment.substring(0, colenIndex);
-			String data[] = arrayData.split(",");
-			int len = data.length;
-			for (int i = 0; i < len - 1; i++) {
-				if (data[i].trim().length() != 0) {
-					cfg.add(data[i].trim());
-				}
-			}
-			key = data[len - 1].trim();
-		} else {
-
-			String data[] = jsonFragment.split(",");
-			int len = data.length;
-			for (int i = 0; i < len; i++) {
-				if (data[i].trim().length() != 0) {
-					cfg.add(data[i].trim());
-				}
-			}
-
-		}
-		return key;
-	}
-
-	private String getKeyandMap(String jsonFragment, Map<String, String> cfg) {
 		StringBuilder sb = new StringBuilder();
 		char jasonFragmentChar[] = jsonFragment.toCharArray();
 		String key = "", val = "";
@@ -317,7 +205,7 @@ public class JsonParser {
 			if (jasonFragmentChar[j] == '"') {
 				dqCnt++;
 			}
-			if (dqCnt == 1 || dqCnt == 3) {
+			if (dqCnt == 1) {
 				sb.append(jasonFragmentChar[j]);
 			}
 			if (sb.toString().trim().length() == 0) {
@@ -326,22 +214,84 @@ public class JsonParser {
 			if (dqCnt == 2) {
 				sb.append(jasonFragmentChar[j]);
 				key = sb.toString();
+				result.add(key);
+				dqCnt = 0;
 				sb.delete(0, sb.length());
-			}
-			if (dqCnt == 4) {
-				sb.append(jasonFragmentChar[j]);
-				val = sb.toString();
-				sb.delete(0, sb.length());
-				cfg.put(key, val);
-				key = "";
-				val = "";
 			}
 		}
-		if (val.trim().length() != 0) {
-			return "";
+		isValidTokens(jsonFragment, result);
+		return result;
+	}
+
+	public boolean isValidTokens(String jsonFragment, ArrayList<String> result) {
+		if (jsonFragment.trim().length() <= 1) {
+			return false;
 		}
 
-		return key;
+		String data[] = jsonFragment.split(","), tokens[] = null;
+		int len = data.length;
+		for (int i = 0; i < len; i++) {
+			if (data[i].contains(":")) {
+				tokens = data[i].split(":");
+				if (result.contains(tokens[0].trim())) {
+					result.remove(tokens[0].trim());
+				} else {
+					throw new NotAValidToken(tokens[0].trim());
+				}
+				if (result.contains(tokens[1].trim())) {
+					result.remove(tokens[1].trim());
+				} else {
+					throw new NotAValidToken(tokens[1].trim());
+				}
+			} else {
+				if (result.contains(data[i].trim())) {
+					result.remove(data[i].trim());
+				} else {
+					throw new NotAValidToken(data[i].trim());
+				}
+			}
+		}
+
+		return false;
+	}
+
+	public void updateDBwithArray(ArrayList<String> cfg, String key, int startIndex) {
+		int len = cfg.size(), aux = 0;
+		if (key.trim().length() == 0) {
+			return;
+		}
+		if (len == 1 && cfg.get(0) == "$") {
+			return;
+		}
+		for (int i = 0; i < len; i++) {
+			aux = i + startIndex;
+			if (key.trim().endsWith(".")) {
+				dataBase.put(key + "[" + aux + "]", cfg.get(i));
+			} else {
+				dataBase.put(key + ".[" + aux + "]", cfg.get(i));
+			}
+		}
+		aux++;
+		indexStack.pop();
+		indexStack.push(aux);
+		cfg.clear();
+
+	}
+
+	private void updateDataBase(String key, String val) {
+		dataBase.put(key, val);
+	}
+
+	public void updateDBwithMap(ArrayList<String> elements, String key) {
+		int len = elements.size();
+		for (int i = 0; i + 1 < len; i = i + 2) {
+			if (key.trim().endsWith(".")) {
+				dataBase.put(key + elements.get(i), elements.get(i + 1));
+			} else {
+				dataBase.put(key + "." + elements.get(i), elements.get(i + 1));
+			}
+		}
+
 	}
 
 	private int getMinof(int openedCurlybracesIndex, int closedCurlybracesIndex, int openedBracketsIndex,
@@ -363,9 +313,20 @@ public class JsonParser {
 	}
 
 	public static void main(String[] args) {
-		// TODO Auto-generated method stub
+// TODO Auto-generated method stub
 		System.out.println("Jesus is Lord:Romans-10:9");
-		JsonParser jp = new JsonParser("");
+		System.out.println("---------------------------------------");
+		AcaciaArkJSONParser jp = new AcaciaArkJSONParser("C:\\slingBuilder\\workspace\\tools\\test.json");
 	}
 
+}
+
+class NotAValidToken extends RuntimeException {
+	public NotAValidToken() {
+		super();
+	}
+
+	public NotAValidToken(String msg) {
+		super(msg);
+	}
 }
