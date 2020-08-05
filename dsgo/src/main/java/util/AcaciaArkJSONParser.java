@@ -219,7 +219,40 @@ public class AcaciaArkJSONParser {
 				sb.delete(0, sb.length());
 			}
 		}
+		isValidTokens(jsonFragment, result);
 		return result;
+	}
+
+	public boolean isValidTokens(String jsonFragment, ArrayList<String> result) {
+		if (jsonFragment.trim().length() <= 1) {
+			return false;
+		}
+
+		String data[] = jsonFragment.split(","), tokens[] = null;
+		int len = data.length;
+		for (int i = 0; i < len; i++) {
+			if (data[i].contains(":")) {
+				tokens = data[i].split(":");
+				if (result.contains(tokens[0].trim())) {
+					result.remove(tokens[0].trim());
+				} else {
+					throw new NotAValidToken(tokens[0].trim());
+				}
+				if (result.contains(tokens[1].trim())) {
+					result.remove(tokens[1].trim());
+				} else {
+					throw new NotAValidToken(tokens[1].trim());
+				}
+			} else {
+				if (result.contains(data[i].trim())) {
+					result.remove(data[i].trim());
+				} else {
+					throw new NotAValidToken(data[i].trim());
+				}
+			}
+		}
+
+		return false;
 	}
 
 	public void updateDBwithArray(ArrayList<String> cfg, String key, int startIndex) {
@@ -286,4 +319,14 @@ public class AcaciaArkJSONParser {
 		AcaciaArkJSONParser jp = new AcaciaArkJSONParser("C:\\slingBuilder\\workspace\\tools\\test.json");
 	}
 
+}
+
+class NotAValidToken extends RuntimeException {
+	public NotAValidToken() {
+		super();
+	}
+
+	public NotAValidToken(String msg) {
+		super(msg);
+	}
 }
