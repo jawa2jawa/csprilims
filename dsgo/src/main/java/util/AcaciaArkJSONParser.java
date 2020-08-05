@@ -14,12 +14,14 @@ import java.util.Stack;
 public class AcaciaArkJSONParser {
 	File jsonFile = null;
 	Stack<String> keyStack = new Stack<String>();
-	Stack<Character> brac_curly_Stack = new Stack<Character>();
+	Stack<Integer> indexStack = new Stack<Integer>();
+	Stack<Character> operatorStack = new Stack<Character>();
 	LinkedHashMap<String, String> dataBase = new LinkedHashMap<String, String>();
 	ArrayList<String> elements = new ArrayList<String>();
-	char startChars[] = { '[', '{' };
+	char startChars[] = { '[', '{' }, previousClosed = ' ';
 	HashMap<Character, Character> endChMap = new HashMap<Character, Character>();
-	String previousData = "{";
+	String previousData = "", nextKey = "";
+	Integer nextIndex = 0;
 
 	public AcaciaArkJSONParser(String fileNmae) {
 		jsonFile = new File(fileNmae);
@@ -53,25 +55,25 @@ public class AcaciaArkJSONParser {
 					System.out.println(line);
 					sb.append(line);
 				}
-				System.out.println("***************************************");
 				processData(sb.toString());
 			} catch (IOException e) {
-				// TODO Auto-generated catch block
+// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
 
 		} catch (FileNotFoundException e) {
-			// TODO Auto-generated catch block
+// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 	}
 
 	private void processData(String jsonData) {
-		String jsonFragment = jsonData;// previousData + jsonData;
+		String jsonFragment = previousData + jsonData;
 		jsonFragment = jsonFragment.trim();
-		int len = jsonFragment.length();
+		int len = jsonFragment.length(), previousIndex = 0;
 		StringBuilder sb = new StringBuilder();
-		String aux = "", data[] = null, tos = "", key = "";
+
+		String jsonText = "", data[] = null, tos = "", key = "";
 		int min = Integer.MAX_VALUE, i = 0;
 		int openedCurlybracesIndex = 0, closedCurlybracesIndex = 0, openedBracketsIndex = 0, closedBracketIndex = 0;
 		for (; i < len; i++) {
@@ -79,34 +81,66 @@ public class AcaciaArkJSONParser {
 			 * jsonFragment starts with { or [
 			 */
 			if (startChars[0] == jsonFragment.charAt(i) || startChars[1] == jsonFragment.charAt(i)) {
-				brac_curly_Stack.push(jsonFragment.charAt(i));
-				if (elements.size() != 0) {
-					keyStack.push(keyStack.peek() + "." + elements.get(elements.size() - 1));
-				} else {
-					keyStack.push("");
+				jsonText = jsonFragment.substring(previousIndex, i);
+				jsonText = jsonText.trim();
+				if (jsonText.length() == 0) {
+					jsonText = "$";
 				}
-				elements.clear();
-
-				System.out.println(jsonFragment.charAt(i));
-				aux = jsonFragment.substring(1 + i);
-				closedCurlybracesIndex = aux.indexOf(endChMap.get(startChars[1]));
-				closedBracketIndex = aux.indexOf(endChMap.get(startChars[0]));
-				openedCurlybracesIndex = aux.indexOf(startChars[1]);
-				openedBracketsIndex = aux.indexOf(startChars[0]);
-				min = getMinof(openedCurlybracesIndex, closedCurlybracesIndex, openedBracketsIndex, closedBracketIndex);
-				if (closedCurlybracesIndex != -1 || closedBracketIndex != -1 || openedCurlybracesIndex != -1
-						|| openedBracketsIndex != -1) {
-					if (aux.substring(0, min).trim().length() != 0) {
-						elements.addAll(getStringAsTokens(aux.substring(0, min)));
-						if (brac_curly_Stack.peek() == '{') {
-							updateDBwithMap(elements, keyStack.peek());
+				elements = getStringAsTokens(jsonText);
+				if (jsonText.endsWith(":")) {
+					nextKey = elements.remove(elements.size() - 1);
+				}
+				if (!indexStack.isEmpty()) {
+					nextIndex = indexStack.peek();
+				}
+				if (elements.size() == 0) {
+					elements.add("$");
+				}
+				if (!operatorStack.isEmpty() && operatorStack.peek() == '[') {
+					updateDBwithArray(elements, keyStack.peek(), nextIndex);
+				}
+				if (!operatorStack.isEmpty() && operatorStack.peek() == '{') {
+					updateDBwithMap(elements, keyStack.peek());
+				}
+				previousIndex = i + 1;
+				jsonText = jsonFragment.substring(previousIndex);
+				closedCurlybracesIndex = jsonText.indexOf(endChMap.get(startChars[1]));
+				closedBracketIndex = jsonText.indexOf(endChMap.get(startChars[0]));
+				openedCurlybracesIndex = jsonText.indexOf(startChars[1]);
+				openedBracketsIndex = jsonText.indexOf(startChars[0]);
+				if (!indexStack.isEmpty() && !keyStack.isEmpty() && keyStack.peek().trim().length() > 0
+						&& !operatorStack.isEmpty() && (operatorStack.peek() == '[')) {
+					if (keyStack.peek().trim().endsWith(".")) {
+						if (nextKey.trim().startsWith(".")) {
+							keyStack.push(keyStack.peek() + "[" + indexStack.peek() + "]" + nextKey);
+						} else {
+							keyStack.push(keyStack.peek() + "[" + indexStack.peek() + "]." + nextKey);
 						}
-						if (brac_curly_Stack.peek() == '[') {
-							updateDBwithArray(elements, keyStack.peek());
+					} else {
+						if (nextKey.trim().startsWith(".")) {
+							keyStack.push(keyStack.peek() + ".[" + indexStack.peek() + "]" + nextKey);
+						} else {
+							keyStack.push(keyStack.peek() + ".[" + indexStack.peek() + "]." + nextKey);
 						}
 					}
+				} else {
+					if (keyStack.peek().trim().endsWith(".") || nextKey.trim().startsWith(".")) {
+						keyStack.push(keyStack.peek() + nextKey);
+					} else {
+						keyStack.push(keyStack.peek() + "." + nextKey);
+					}
 				}
-				i = i + min;
+				operatorStack.push(jsonFragment.charAt(i));
+				nextKey = "";
+				if (jsonFragment.charAt(i) == '[') {
+					indexStack.push(0);
+				}
+				if (closedCurlybracesIndex != -1 || closedBracketIndex != -1 || openedCurlybracesIndex != -1
+						|| openedBracketsIndex != -1) {
+					min = getMinof(openedCurlybracesIndex, closedCurlybracesIndex, openedBracketsIndex,
+							closedBracketIndex);
+					i += min;
+				}
 				continue;
 			}
 
@@ -114,29 +148,43 @@ public class AcaciaArkJSONParser {
 			 * jsonFragment starts with } or ]
 			 */
 			if ('}' == jsonFragment.charAt(i) || ']' == jsonFragment.charAt(i)) {
-				System.out.println(jsonFragment.charAt(i));
-				aux = jsonFragment.substring(1 + i);
-				closedCurlybracesIndex = aux.indexOf(endChMap.get(startChars[1]));
-				closedBracketIndex = aux.indexOf(endChMap.get(startChars[0]));
-				openedCurlybracesIndex = aux.indexOf(startChars[1]);
-				openedBracketsIndex = aux.indexOf(startChars[0]);
-				min = getMinof(openedCurlybracesIndex, closedCurlybracesIndex, openedBracketsIndex, closedBracketIndex);
+				jsonText = jsonFragment.substring(previousIndex, i);
+				jsonText = jsonText.trim();
+				if (jsonText.length() == 0) {
+					jsonText = "$";
+				}
+				elements = getStringAsTokens(jsonText);
+				if (!operatorStack.isEmpty() && operatorStack.peek() == '[' && !keyStack.isEmpty()
+						&& !indexStack.isEmpty()) {
+					updateDBwithArray(elements, keyStack.peek(), indexStack.peek());
+					if (elements.size() == 1 && elements.get(0) == "$" && indexStack.peek() == 0) {
+						updateDataBase(keyStack.peek(), "Undefined");
+					}
+					keyStack.pop();
+					indexStack.pop();
+				}
+				if (!operatorStack.isEmpty() && operatorStack.peek() == '{' && !keyStack.isEmpty()) {
+					updateDBwithMap(elements, keyStack.peek());
+					keyStack.pop();
+				}
+				operatorStack.pop();
+				if (!operatorStack.isEmpty() && operatorStack.peek() == '[' && !indexStack.isEmpty()) {
+					nextIndex = indexStack.pop();
+					nextIndex++;
+					indexStack.push(nextIndex);
+				}
+				previousIndex = i + 1;
+				jsonText = jsonFragment.substring(previousIndex);
+				closedCurlybracesIndex = jsonText.indexOf(endChMap.get(startChars[1]));
+				closedBracketIndex = jsonText.indexOf(endChMap.get(startChars[0]));
+				openedCurlybracesIndex = jsonText.indexOf(startChars[1]);
+				openedBracketsIndex = jsonText.indexOf(startChars[0]);
 				if (closedCurlybracesIndex != -1 || closedBracketIndex != -1 || openedCurlybracesIndex != -1
 						|| openedBracketsIndex != -1) {
-					if (aux.substring(0, min).trim().length() != 0) {
-						elements.addAll(getStringAsTokens(aux.substring(0, min)));
-						if (brac_curly_Stack.peek() == '{') {
-							updateDBwithMap(elements, keyStack.peek());
-						}
-						if (brac_curly_Stack.peek() == '[') {
-							updateDBwithArray(elements, keyStack.peek());
-						}
-					}
-					i = i + min;
+					min = getMinof(openedCurlybracesIndex, closedCurlybracesIndex, openedBracketsIndex,
+							closedBracketIndex);
+					i += min;
 				}
-
-				brac_curly_Stack.pop();
-				keyStack.pop();
 			}
 		}
 	}
@@ -174,18 +222,41 @@ public class AcaciaArkJSONParser {
 		return result;
 	}
 
-	public void updateDBwithArray(ArrayList<String> elements, String key) {
-		int len = elements.size();
-		for (int i = 0; i < len; i++) {
-			dataBase.put(key + "[" + i + "]", elements.get(i));
+	public void updateDBwithArray(ArrayList<String> cfg, String key, int startIndex) {
+		int len = cfg.size(), aux = 0;
+		if (key.trim().length() == 0) {
+			return;
 		}
+		if (len == 1 && cfg.get(0) == "$") {
+			return;
+		}
+		for (int i = 0; i < len; i++) {
+			aux = i + startIndex;
+			if (key.trim().endsWith(".")) {
+				dataBase.put(key + "[" + aux + "]", cfg.get(i));
+			} else {
+				dataBase.put(key + ".[" + aux + "]", cfg.get(i));
+			}
+		}
+		aux++;
+		indexStack.pop();
+		indexStack.push(aux);
+		cfg.clear();
 
+	}
+
+	private void updateDataBase(String key, String val) {
+		dataBase.put(key, val);
 	}
 
 	public void updateDBwithMap(ArrayList<String> elements, String key) {
 		int len = elements.size();
 		for (int i = 0; i + 1 < len; i = i + 2) {
-			dataBase.put(key + "." + elements.get(i), elements.get(i + 1));
+			if (key.trim().endsWith(".")) {
+				dataBase.put(key + elements.get(i), elements.get(i + 1));
+			} else {
+				dataBase.put(key + "." + elements.get(i), elements.get(i + 1));
+			}
 		}
 
 	}
@@ -209,10 +280,10 @@ public class AcaciaArkJSONParser {
 	}
 
 	public static void main(String[] args) {
-		// TODO Auto-generated method stub
+// TODO Auto-generated method stub
 		System.out.println("Jesus is Lord:Romans-10:9");
-		AcaciaArkJSONParser jp = new AcaciaArkJSONParser(
-				"/home/samuel/Documents/workspace-spring-tool-suite-4-4.1.1.RELEASE/dataStructures/example.json");
+		System.out.println("---------------------------------------");
+		AcaciaArkJSONParser jp = new AcaciaArkJSONParser("C:\\slingBuilder\\workspace\\tools\\test.json");
 	}
 
 }
