@@ -8,10 +8,11 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.Stack;
 
-public class AcaciaArkJSONParser {
+public class JsonParser {
 	File jsonFile = null;
 	Stack<String> keyStack = new Stack<String>();
 	Stack<Integer> indexStack = new Stack<Integer>();
@@ -23,7 +24,7 @@ public class AcaciaArkJSONParser {
 	String previousData = "", nextKey = "";
 	Integer nextIndex = 0;
 
-	public AcaciaArkJSONParser(String fileNmae) {
+	public JsonParser(String fileNmae) {
 		jsonFile = new File(fileNmae);
 		endChMap.put('{', '}');
 		endChMap.put('[', ']');
@@ -320,7 +321,6 @@ public class AcaciaArkJSONParser {
 	}
 
 }
-
 class NotAValidToken extends RuntimeException {
 	public NotAValidToken() {
 		super();
