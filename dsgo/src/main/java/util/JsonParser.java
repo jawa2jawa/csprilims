@@ -1,3 +1,5 @@
+
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
@@ -8,32 +10,95 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.Set;
 import java.util.Stack;
+
+import org.json.JSONObject;
 
 public class JsonParser {
 	File jsonFile = null;
 	Stack<String> keyStack = new Stack<String>();
 	Stack<Integer> indexStack = new Stack<Integer>();
 	Stack<Character> operatorStack = new Stack<Character>();
-	LinkedHashMap<String, String> dataBase = new LinkedHashMap<String, String>();
+	JsonDB dataBase = new JsonDB();
 	ArrayList<String> elements = new ArrayList<String>();
 	char startChars[] = { '[', '{' }, previousClosed = ' ';
 	HashMap<Character, Character> endChMap = new HashMap<Character, Character>();
 	String previousData = "", nextKey = "";
 	Integer nextIndex = 0;
 
+	public ArrayList<String> getJsonFragemts() {
+		return jsonFragemts;
+	}
+
+	public void setJsonFragemts(ArrayList<String> jsonFragemts) {
+		this.jsonFragemts = jsonFragemts;
+	}
+
+	ArrayList<String> jsonFragemts = new ArrayList<String>();
+
 	public JsonParser(String fileNmae) {
 		jsonFile = new File(fileNmae);
 		endChMap.put('{', '}');
 		endChMap.put('[', ']');
-		keyStack.push("");
+		keyStack.push("$");
 		parse();
 		System.out.println("**********************DB*********************");
 		printDataBase();
+		System.out.println("**********************KEYS*********************");
+		printAccountDetails();
 	}
 
+	private String asJsonString(String key) {
+		String result = key;
+		if (!key.startsWith("\"")) {
+			result = "\"" + result;
+		}
+		if (!key.endsWith("\"")) {
+			result = result + "\"";
+		}
+		return result;
+	}
+
+	private void printAccountDetails() {
+		Set set = dataBase.keySet();
+		String prefix = ".development.roku-roku.beta.", data[] = null, aux = "", key = "", val = "", jsonResult = "";
+		ArrayList keys = new ArrayList<String>(set);
+		int len = keys.size();
+		StringBuilder sb = new StringBuilder();
+		for (int i = 0; i < len; i++) {
+			if (!((String) keys.get(i)).contains("beta")) {
+				continue;
+			}
+			data = ((String) keys.get(i)).split("beta");
+			aux = data[1];
+			data = aux.split("]");
+			data[0] = data[0] + "]";
+			sb.append("{");
+			System.out.println(keys.get(i));
+			for (int j = i; j < len; j++) {
+				aux = (String) keys.get(j);
+				if (aux.contains(data[0])) {
+					data = aux.split("].");
+					sb.append(asJsonString(data[1])).append(":").append(asJsonString(dataBase.get(aux))).append(",");
+				} else {
+					i = j;
+					jsonResult = sb.toString();
+					sb.delete(0, sb.capacity());
+					jsonResult = jsonResult.substring(0, jsonResult.length() - 1);
+					break;
+				}
+			}
+			sb.append(jsonResult).append("}");
+			jsonFragemts.add(sb.toString());
+			System.out.println("Json Fragment:\n" + sb.toString());
+			String auxStr= "{\"account\":" +sb.toString()+ "}";
+			JSONObject jsonObj=new JSONObject(auxStr);
+			jsonObj=jsonObj.getJSONObject("account");
+			System.out.println(jsonObj.toString());
+			sb.delete(0, sb.capacity());
+		}
+	}
 	private void printDataBase() {
 		Set set = dataBase.keySet();
 		Iterator iterator = set.iterator();
@@ -56,277 +121,228 @@ public class JsonParser {
 					System.out.println(line);
 					sb.append(line);
 				}
-				processData(sb.toString());
+				parseData(sb.toString());
 			} catch (IOException e) {
-// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
 
 		} catch (FileNotFoundException e) {
-// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 	}
 
-	private void processData(String jsonData) {
-		String jsonFragment = previousData + jsonData;
-		jsonFragment = jsonFragment.trim();
-		int len = jsonFragment.length(), previousIndex = 0;
-		StringBuilder sb = new StringBuilder();
+	StringBuilder jsonFragment = new StringBuilder();
+	boolean isArray = false;
 
-		String jsonText = "", data[] = null, tos = "", key = "";
-		int min = Integer.MAX_VALUE, i = 0;
-		int openedCurlybracesIndex = 0, closedCurlybracesIndex = 0, openedBracketsIndex = 0, closedBracketIndex = 0;
-		for (; i < len; i++) {
-			/*
-			 * jsonFragment starts with { or [
-			 */
-			if (startChars[0] == jsonFragment.charAt(i) || startChars[1] == jsonFragment.charAt(i)) {
-				jsonText = jsonFragment.substring(previousIndex, i);
-				jsonText = jsonText.trim();
-				if (jsonText.length() == 0) {
-					jsonText = "$";
-				}
-				elements = getStringAsTokens(jsonText);
-				if (jsonText.endsWith(":")) {
-					nextKey = elements.remove(elements.size() - 1);
-				}
-				if (!indexStack.isEmpty()) {
-					nextIndex = indexStack.peek();
-				}
-				if (elements.size() == 0) {
-					elements.add("$");
-				}
-				if (!operatorStack.isEmpty() && operatorStack.peek() == '[') {
-					updateDBwithArray(elements, keyStack.peek(), nextIndex);
-				}
-				if (!operatorStack.isEmpty() && operatorStack.peek() == '{') {
-					updateDBwithMap(elements, keyStack.peek());
-				}
-				previousIndex = i + 1;
-				jsonText = jsonFragment.substring(previousIndex);
-				closedCurlybracesIndex = jsonText.indexOf(endChMap.get(startChars[1]));
-				closedBracketIndex = jsonText.indexOf(endChMap.get(startChars[0]));
-				openedCurlybracesIndex = jsonText.indexOf(startChars[1]);
-				openedBracketsIndex = jsonText.indexOf(startChars[0]);
-				if (!indexStack.isEmpty() && !keyStack.isEmpty() && keyStack.peek().trim().length() > 0
-						&& !operatorStack.isEmpty() && (operatorStack.peek() == '[')) {
-					if (keyStack.peek().trim().endsWith(".")) {
-						if (nextKey.trim().startsWith(".")) {
-							keyStack.push(keyStack.peek() + "[" + indexStack.peek() + "]" + nextKey);
-						} else {
-							keyStack.push(keyStack.peek() + "[" + indexStack.peek() + "]." + nextKey);
-						}
-					} else {
-						if (nextKey.trim().startsWith(".")) {
-							keyStack.push(keyStack.peek() + ".[" + indexStack.peek() + "]" + nextKey);
-						} else {
-							keyStack.push(keyStack.peek() + ".[" + indexStack.peek() + "]." + nextKey);
-						}
-					}
-				} else {
-					if (keyStack.peek().trim().endsWith(".") || nextKey.trim().startsWith(".")) {
-						keyStack.push(keyStack.peek() + nextKey);
-					} else {
-						keyStack.push(keyStack.peek() + "." + nextKey);
-					}
-				}
-				operatorStack.push(jsonFragment.charAt(i));
-				nextKey = "";
-				if (jsonFragment.charAt(i) == '[') {
-					indexStack.push(0);
-				}
-				if (closedCurlybracesIndex != -1 || closedBracketIndex != -1 || openedCurlybracesIndex != -1
-						|| openedBracketsIndex != -1) {
-					min = getMinof(openedCurlybracesIndex, closedCurlybracesIndex, openedBracketsIndex,
-							closedBracketIndex);
-					i += min;
-				}
-				continue;
-			}
+	char currentCh = ' ';
 
-			/*
-			 * jsonFragment starts with } or ]
-			 */
-			if ('}' == jsonFragment.charAt(i) || ']' == jsonFragment.charAt(i)) {
-				jsonText = jsonFragment.substring(previousIndex, i);
-				jsonText = jsonText.trim();
-				if (jsonText.length() == 0) {
-					jsonText = "$";
-				}
-				elements = getStringAsTokens(jsonText);
-				if (!operatorStack.isEmpty() && operatorStack.peek() == '[' && !keyStack.isEmpty()
-						&& !indexStack.isEmpty()) {
-					updateDBwithArray(elements, keyStack.peek(), indexStack.peek());
-					if (elements.size() == 1 && elements.get(0) == "$" && indexStack.peek() == 0) {
-						updateDataBase(keyStack.peek(), "Undefined");
-					}
-					keyStack.pop();
-					indexStack.pop();
-				}
-				if (!operatorStack.isEmpty() && operatorStack.peek() == '{' && !keyStack.isEmpty()) {
-					updateDBwithMap(elements, keyStack.peek());
-					keyStack.pop();
-				}
-				operatorStack.pop();
-				if (!operatorStack.isEmpty() && operatorStack.peek() == '[' && !indexStack.isEmpty()) {
-					nextIndex = indexStack.pop();
-					nextIndex++;
-					indexStack.push(nextIndex);
-				}
-				previousIndex = i + 1;
-				jsonText = jsonFragment.substring(previousIndex);
-				closedCurlybracesIndex = jsonText.indexOf(endChMap.get(startChars[1]));
-				closedBracketIndex = jsonText.indexOf(endChMap.get(startChars[0]));
-				openedCurlybracesIndex = jsonText.indexOf(startChars[1]);
-				openedBracketsIndex = jsonText.indexOf(startChars[0]);
-				if (closedCurlybracesIndex != -1 || closedBracketIndex != -1 || openedCurlybracesIndex != -1
-						|| openedBracketsIndex != -1) {
-					min = getMinof(openedCurlybracesIndex, closedCurlybracesIndex, openedBracketsIndex,
-							closedBracketIndex);
-					i += min;
-				}
-			}
-		}
-	}
-
-	private ArrayList<String> getStringAsTokens(String jsonFragment) {
-		ArrayList<String> result = new ArrayList<String>();
-
-		StringBuilder sb = new StringBuilder();
-		char jasonFragmentChar[] = jsonFragment.toCharArray();
-		String key = "", val = "";
-		int cfgLen = jasonFragmentChar.length, dqCnt = 0;
-		for (int j = 0; j < cfgLen; j++) {
-			if ((int) jasonFragmentChar[j] == 92) {
-				sb.append(jasonFragmentChar[j]).append(jasonFragmentChar[j + 1]);
-				j++;
-				continue;
-			}
-			if (jasonFragmentChar[j] == '"') {
-				dqCnt++;
-			}
-			if (dqCnt == 1) {
-				sb.append(jasonFragmentChar[j]);
-			}
-			if (sb.toString().trim().length() == 0) {
-				continue;
-			}
-			if (dqCnt == 2) {
-				sb.append(jasonFragmentChar[j]);
-				key = sb.toString();
-				result.add(key);
-				dqCnt = 0;
-				sb.delete(0, sb.length());
-			}
-		}
-		isValidTokens(jsonFragment, result);
-		return result;
-	}
-
-	public boolean isValidTokens(String jsonFragment, ArrayList<String> result) {
-		if (jsonFragment.trim().length() <= 1) {
-			return false;
-		}
-
-		String data[] = jsonFragment.split(","), tokens[] = null;
-		int len = data.length;
+	private void parseData(String jsonData) {
+		int len = jsonData.length();
 		for (int i = 0; i < len; i++) {
-			if (data[i].contains(":")) {
-				tokens = data[i].split(":");
-				if (result.contains(tokens[0].trim())) {
-					result.remove(tokens[0].trim());
-				} else {
-					throw new NotAValidToken(tokens[0].trim());
+			currentCh = jsonData.charAt(i);
+			if (currentCh != '{' && currentCh != '}' && currentCh != '[' && currentCh != ']') {
+				jsonFragment.append(currentCh);
+			}
+			if (currentCh == '{' || currentCh == '[' || currentCh == '}' || currentCh == ']') {
+				if (currentCh == '{' || currentCh == '[') {
+					operatorStack.push(currentCh);
 				}
-				if (result.contains(tokens[1].trim())) {
-					result.remove(tokens[1].trim());
-				} else {
-					throw new NotAValidToken(tokens[1].trim());
-				}
-			} else {
-				if (result.contains(data[i].trim())) {
-					result.remove(data[i].trim());
-				} else {
-					throw new NotAValidToken(data[i].trim());
+				updateDB();
+				jsonFragment.delete(0, jsonFragment.length());
+			}
+		}
+
+	}
+
+	private String getNextKey(String key) {
+		int len = key.length();
+		int sindex = 0, eindex = 0, index = 0;
+		String result = "";
+		for (int i = len - 1; i >= 0; i--) {
+			if (key.charAt(i) == '[') {
+				sindex = i + 1;
+				for (int j = i; j < len; j++) {
+					if (key.charAt(j) == ']') {
+						eindex = j;
+						index = Integer.parseInt(key.substring(sindex, eindex));
+						result = key.substring(0, i);
+						index++;
+						return result + "[" + index + "]";
+					}
 				}
 			}
 		}
 
-		return false;
+		return key;
 	}
 
-	public void updateDBwithArray(ArrayList<String> cfg, String key, int startIndex) {
-		int len = cfg.size(), aux = 0;
-		if (key.trim().length() == 0) {
+	private void updateDB() {
+		if (keyStack.isEmpty()) {
 			return;
 		}
-		if (len == 1 && cfg.get(0) == "$") {
+		String jsonStr = jsonFragment.toString().trim();
+		String currentKey = "", key = "";
+		if (jsonStr.length() == 0 && keyStack.peek().equals("$")) {
 			return;
 		}
+
+		if (jsonStr.length() == 0 && (currentCh == '{' || currentCh == '[')) {
+			key = keyStack.peek();
+			key = key + " ";
+			keyStack.push(key);
+			return;
+		}
+
+		if (jsonStr.length() == 0 && (currentCh == '}' || currentCh == ']')) {
+			key = keyStack.pop();
+			if (key.contains("prod")) {
+				System.out.println("Popped Key===>" + key);
+			}
+			if (key.contains("beta")) {
+				System.out.println("Popped Key===>" + key);
+			}
+			return;
+		}
+
+		if (jsonStr.length() == 1 && jsonStr.charAt(0) == ',') {
+			key = keyStack.pop();
+			key = getNextKey(key);
+			keyStack.push(key);
+			keyStack.push(key + " ");
+			return;
+
+		}
+		if (jsonStr.trim().startsWith(",")) {
+			if (operatorStack.peek() == '[') {
+				key = keyStack.pop();
+				keyStack.push(getNextKey(key));
+			}
+		}
+		String aux[] = jsonStr.split(","), tokens[] = null;
+		int len = aux.length, index = 0;
+		if (keyStack.isEmpty()) {
+			return;
+		}
+		key = keyStack.peek();
+
+		if (jsonStr.endsWith(",")) {
+			// continue,it has key
+			for (int i = 0; i < len; i++) {
+				dataBase.put(key, aux[i].trim());
+				key = getNextKey(key);
+
+			}
+			keyStack.pop();
+			keyStack.push(key);
+			keyStack.push(key + " ");
+			return;
+		}
+
+		if (jsonStr.endsWith(":")) {
+			// continue,it has key
+			if (jsonStr.contains("prod")) {
+				System.out.println(jsonStr);
+			}
+			for (int i = 0; i < len - 1; i++) {
+				if (aux[i].trim().length() == 0) {
+					continue;
+				}
+				tokens = getKVPair(aux[i]);
+				if (tokens.length == 2) {
+					if (key.trim().endsWith(".")) {
+						dataBase.put(key.trim() + tokens[0].trim(), tokens[1].trim());
+					} else {
+						dataBase.put(key.trim() + "." + tokens[0].trim(), tokens[1].trim());
+					}
+				} else {
+					dataBase.put(key, tokens[0].trim());
+					key = getNextKey(key);
+					index++;
+				}
+			}
+			currentKey = (aux[len - 1].substring(0, aux[len - 1].length() - 1)).trim();
+			if (operatorStack.peek() == '[') {
+				keyStack.push(key.trim() + "." + currentKey + "[0]");
+			} else {
+				keyStack.push(key.trim() + "." + currentKey);
+			}
+			return;
+		}
+
+		// complete
 		for (int i = 0; i < len; i++) {
-			aux = i + startIndex;
-			if (key.trim().endsWith(".")) {
-				dataBase.put(key + "[" + aux + "]", cfg.get(i));
+			if (aux[i].trim().length() == 0) {
+				continue;
+			}
+			tokens = getKVPair(aux[i]);
+			if (tokens.length == 2) {
+				if (key.trim().endsWith(".")) {
+					dataBase.put(key.trim() + tokens[0].trim(), tokens[1].trim());
+				} else {
+					dataBase.put(key.trim() + "." + tokens[0].trim(), tokens[1].trim());
+				}
 			} else {
-				dataBase.put(key + ".[" + aux + "]", cfg.get(i));
+				if (tokens[0].trim().length() > 0) {
+					dataBase.put(key.trim(), tokens[0].trim());
+					key = getNextKey(key);
+				}
 			}
 		}
-		aux++;
-		indexStack.pop();
-		indexStack.push(aux);
-		cfg.clear();
-
+		key = keyStack.pop();
+		operatorStack.pop();
 	}
 
-	private void updateDataBase(String key, String val) {
-		dataBase.put(key, val);
-	}
-
-	public void updateDBwithMap(ArrayList<String> elements, String key) {
-		int len = elements.size();
-		for (int i = 0; i + 1 < len; i = i + 2) {
-			if (key.trim().endsWith(".")) {
-				dataBase.put(key + elements.get(i), elements.get(i + 1));
-			} else {
-				dataBase.put(key + "." + elements.get(i), elements.get(i + 1));
+	private String[] getKVPair(String str) {
+		String data1[] = new String[1];
+		int len = str.length(), index = 0;
+		char prevCh = ' ', currentCh = ' ';
+		for (int i = 0; i < len; i++) {
+			currentCh = str.charAt(i);
+			if (currentCh == ' ') {
+				continue;
 			}
+			if (currentCh == ':') {
+				index = i;
+			}
+			if (currentCh == '"' && prevCh == ':') {
+				String data[] = new String[2];
+				data[0] = str.substring(0, index);
+				data[1] = str.substring(index + 1, len);
+				return data;
+			}
+			prevCh = currentCh;
 		}
+		data1[0] = str;
+		return data1;
 
-	}
-
-	private int getMinof(int openedCurlybracesIndex, int closedCurlybracesIndex, int openedBracketsIndex,
-			int closedBracketIndex) {
-		int min = Integer.MAX_VALUE;
-		if (openedCurlybracesIndex >= 0 && (min > openedCurlybracesIndex)) {
-			min = openedCurlybracesIndex;
-		}
-		if (closedCurlybracesIndex >= 0 && (min > closedCurlybracesIndex)) {
-			min = closedCurlybracesIndex;
-		}
-		if (openedBracketsIndex >= 0 && (min > openedBracketsIndex)) {
-			min = openedBracketsIndex;
-		}
-		if (closedBracketIndex >= 0 && (min > closedBracketIndex)) {
-			min = closedBracketIndex;
-		}
-		return min;
 	}
 
 	public static void main(String[] args) {
 // TODO Auto-generated method stub
 		System.out.println("Jesus is Lord:Romans-10:9");
 		System.out.println("---------------------------------------");
-		AcaciaArkJSONParser jp = new AcaciaArkJSONParser("C:\\slingBuilder\\workspace\\tools\\test.json");
+		JsonParser jp = new JsonParser("C:\\codeSpace\\buildMaster\\src\\test\\resources\\Accounts_roku-roku.json");
 	}
 
-}
-class NotAValidToken extends RuntimeException {
-	public NotAValidToken() {
-		super();
-	}
+	class JsonDB extends LinkedHashMap<String, String> {
+		private String trimQuates(String str) {
+			StringBuilder sb = new StringBuilder();
+			int len = str.length();
+			for (int i = 0; i < len; i++) {
+				if (str.charAt(i) == '"' || str.charAt(i) == '$') {
+					continue;
+				}
+				sb.append(str.charAt(i));
+			}
 
-	public NotAValidToken(String msg) {
-		super(msg);
+			return sb.toString();
+		}
+
+		public String put(String key, String val) {
+			key = trimQuates(key);
+			val = trimQuates(val);
+
+			return super.put(key, val);
+		}
 	}
 }
